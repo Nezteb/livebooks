@@ -1,0 +1,93 @@
+# Safe strings to atoms, atoms to keys
+
+## Section
+
+```elixir
+@doc """
+Take a map with string keys and convert the keys to atoms, while converting keys to snake case.
+Also converts listed enum values (represented as uppercase strings) to the corresponding atoms.
+"""
+@spec convert_string_keys_to_atom_keys(list(Map.t()) | Map.t(), list(String.t())) ::
+        list(Map.t()) | Map.t()
+def convert_string_keys_to_atom_keys(object, string_enum_values_to_convert \\ [])
+
+def convert_string_keys_to_atom_keys(object, string_enum_values_to_convert)
+    when is_map(object) do
+  object
+  |> Enum.reduce(%{}, fn {key, val}, acc ->
+    # If key is already an atom, don't modify it
+    new_key = if is_atom(key), do: key, else: key |> Macro.underscore() |> String.to_atom()
+
+    Map.put(
+      acc,
+      new_key,
+      convert_string_keys_to_atom_keys(val, string_enum_values_to_convert)
+    )
+  end)
+end
+
+def convert_string_keys_to_atom_keys(object, string_enum_values_to_convert)
+    when is_list(object) do
+  object
+  |> Enum.map(fn current_object ->
+    convert_string_keys_to_atom_keys(current_object, string_enum_values_to_convert)
+  end)
+end
+
+def convert_string_keys_to_atom_keys(object, string_enum_values_to_convert)
+    when is_binary(object) do
+  if object in string_enum_values_to_convert do
+    object |> String.downcase() |> Macro.underscore() |> String.to_atom()
+  else
+    object
+  end
+end
+
+def convert_string_keys_to_atom_keys(object, _string_enum_values_to_convert) do
+  object
+end
+
+@doc """
+Take a map with atom keys and convert they keys to strings, while converting keys to camel case.
+Also converts listed enum values (represented as atoms) to the corresponding uppercase strings.
+"""
+@spec convert_atom_keys_to_string_keys(list(Map.t()) | Map.t(), list(atom())) ::
+        list(Map.t()) | Map.t()
+def convert_atom_keys_to_string_keys(object, atom_enum_values_to_convert \\ [])
+
+def convert_atom_keys_to_string_keys(object, atom_enum_values_to_convert) when is_map(object) do
+  object
+  |> Enum.reduce(%{}, fn {key, val}, acc ->
+    # If key is already an string, don't modify it
+    new_key = if is_binary(key), do: key, else: key |> Atom.to_string() |> Macro.underscore()
+
+    Map.put(
+      acc,
+      new_key,
+      convert_atom_keys_to_string_keys(val, atom_enum_values_to_convert)
+    )
+  end)
+end
+
+def convert_atom_keys_to_string_keys(object, atom_enum_values_to_convert)
+    when is_list(object) do
+  object
+  |> Enum.map(fn current_object ->
+    convert_atom_keys_to_string_keys(current_object, atom_enum_values_to_convert)
+  end)
+end
+
+# Booleans are also atoms, we don't want to transform those
+def convert_atom_keys_to_string_keys(object, atom_enum_values_to_convert)
+    when is_atom(object) and not is_boolean(object) do
+  if object in atom_enum_values_to_convert do
+    Atom.to_string(object) |> String.upcase()
+  else
+    object
+  end
+end
+
+def convert_atom_keys_to_string_keys(object, _atom_enum_values_to_convert) do
+  object
+end
+```

@@ -1,0 +1,46 @@
+# murder mystery-o-matic solver
+
+## Section
+
+```elixir
+defmodule MurderMysterySolver do
+  defstruct [:person, :location, :weapon, :time]
+
+  def solve_mystery do
+    scenarios()
+    |> Enum.filter(&valid_scenario?(&1))
+    |> Enum.map(&describe_scenario/1)
+  end
+
+  defp scenarios do
+    for person <- [:dave, :frida],
+        location <- [:bedroom, :kitchen],
+        weapon <- [:poison, :rope, :pistol, :knife],
+        minutes_after_nine <- [0, 15, 30, 45, 60, 75, 90, 105],
+        do: %MurderMysterySolver{person: person, location: location, weapon: weapon, time: time}
+  end
+
+  defp valid_scenario?(%MurderMysterySolver{
+         person: person,
+         location: location,
+         weapon: weapon,
+         time: time
+       }) do
+    # Validate against the clues
+    # Example: person != :dave or location != :bedroom
+    # ... more conditions based on the clues
+    true
+  end
+
+  defp describe_scenario(%MurderMysterySolver{
+         person: person,
+         location: location,
+         weapon: weapon,
+         time: time
+       }) do
+    "Murderer: #{person}, Location: #{location}, Weapon: #{weapon}, Time: #{time} minutes after 9:00am"
+  end
+end
+
+MurderMysterySolver.solve_mystery()
+```

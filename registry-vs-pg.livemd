@@ -1,0 +1,58 @@
+# Registry
+
+## Register arbitrary PID
+
+```elixir
+defmodule RegistryTest do
+  def init() do
+    Registry.start_link(
+      keys: :duplicate,
+      name: Registry.PubSubTest,
+      partitions: System.schedulers_online()
+    )
+  end
+
+  def subscribe_pid(pid) do
+    # The third argument of `register` allows any arbitrary data, including a pid!
+    {:ok, _} = Registry.register(Registry.PubSubTest, "hello", {pid, :other, "data"})
+  end
+
+  def send_message(message) do
+    Registry.dispatch(Registry.PubSubTest, "hello", fn entries ->
+      # Then you can just pull the pid out as the "subscriber" pid and send to it!
+      for {_, {subscriber_pid, _other, _data}} <- entries, do: send(subscriber_pid, message)
+    end)
+
+    :ok
+  end
+end
+
+pid1 =
+  spawn(fn ->
+    receive do
+      :hello -> IO.puts("world")
+    end
+  end)
+
+pid2 =
+  spawn(fn ->
+    receive do
+      :hello -> IO.puts("ocean")
+    end
+  end)
+
+pid3 =
+  spawn(fn ->
+    receive do
+      :hello -> IO.puts("sky")
+    end
+  end)
+
+RegistryTest.init()
+
+RegistryTest.subscribe_pid(pid1)
+RegistryTest.subscribe_pid(pid2)
+RegistryTest.subscribe_pid(pid3)
+
+RegistryTest.send_message(:hello)
+```

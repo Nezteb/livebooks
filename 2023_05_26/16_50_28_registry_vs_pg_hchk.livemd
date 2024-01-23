@@ -1,0 +1,47 @@
+# Registry vs :pg
+
+## Section
+
+```elixir
+defmodule RegistryTest do
+  def init() do
+    {:ok, _} =
+      Registry.start_link(
+        keys: :duplicate,
+        name: Registry.PubSubTest,
+        partitions: System.schedulers_online()
+      )
+  end
+
+  def subscribe_pid(pid) do
+    {:ok, _} = Registry.register(Registry.PubSubTest, "hello", pid)
+  end
+
+  def send_message(message) do
+    Registry.dispatch(Registry.PubSubTest, "hello", fn entries ->
+      for {pid, _} <- entries, do: send(pid, :hello)
+    end)
+  end
+end
+
+pid1 =
+  spawn(fn ->
+    receive do
+      :hello -> IO.puts("world")
+    end
+  end)
+
+pid2 =
+  spawn(fn ->
+    receive do
+      :hello -> IO.puts("ocean")
+    end
+  end)
+
+pid3 =
+  spawn(fn ->
+    receive do
+      :hello -> IO.puts("sky")
+    end
+  end)
+```

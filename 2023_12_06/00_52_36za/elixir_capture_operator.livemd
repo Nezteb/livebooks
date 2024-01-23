@@ -1,0 +1,29 @@
+# Elixir Capture (&) operator
+
+## Section
+
+```elixir
+things = [1, 2, 3, 4]
+
+capture_add_one_arity = &(&1 + 1)
+capture_add_two_arity = &(&1 + &2)
+
+fn_add_one_arity = fn i -> i + 1 end
+fn_add_two_arity = fn i, n -> i + n end
+
+defmodule SomeModule do
+  def def_add_one_arity(i), do: i + 1
+  def def_add_two_arity(i, n), do: i + n
+end
+
+def_add_one_arity = &SomeModule.def_add_two_arity(&1, 1)
+
+# [1, 2, 3, 4]
+things
+# [2, 3, 4, 5]
+|> Enum.map(capture_add_one_arity)
+# [3, 4, 5, 6]
+|> Enum.map(fn_add_one_arity)
+# [4, 5, 6, 7]
+|> Enum.map(def_add_one_arity)
+```

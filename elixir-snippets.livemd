@@ -1,5 +1,13 @@
 # Random Snippets
 
+```elixir
+Mix.install([
+  :req,
+  {:jason, "~> 1.0"},
+  {:csv, "~> 3.0"}
+])
+```
+
 ## Sorting list of maps with custom sort
 
 ```elixir
@@ -48,4 +56,236 @@ IO.inspect(Test.random_subset([1, 2, 3], 2))
 IO.inspect(Test.random_subset([1, 2, 3, 4, 5, 6], -1))
 IO.inspect(Test.random_subset(["asdf", 24, "iaojsdf", false], 3))
 IO.inspect(Test.random_subset(123, 4))
+```
+
+## Parsing JSON events from Cassandra query
+
+```elixir
+defmodule JsonQuery do
+  def read_json_files(files) do
+    Enum.reduce(files, [], fn file, acc ->
+      case read_json_file(file) do
+        {:ok, json} ->
+          acc ++ json
+
+        {:error, _} ->
+          acc
+      end
+    end)
+  end
+
+  defp read_json_file(file) do
+    with {:ok, body} <- File.read(file),
+         {:ok, json} <- Jason.decode(body) do
+      {:ok, json}
+    end
+  end
+
+  defp get_value(map, key) do
+    case map[key] do
+      nil -> {:error, nil}
+      value -> {:ok, value}
+    end
+  end
+
+  defp decode_json(value) do
+    case value do
+      nil -> {:error, nil}
+      %{} -> {:error, nil}
+      value -> Jason.decode(value)
+    end
+  end
+
+  defp parse_message(message) do
+    case message do
+      nil ->
+        {:error, nil}
+
+      [_connector_id, transaction_id, event_type, payload] ->
+        {:ok, transaction_id, event_type, payload}
+
+      _ ->
+        {:error, nil}
+    end
+  end
+
+  defp parse_meter_values(meter_values, key) do
+    Enum.reduce(meter_values, [], fn meter_value, acc ->
+      case meter_value[key] do
+        nil -> acc
+        value -> [value | acc]
+      end
+    end)
+    |> MapSet.new()
+    |> then(fn set ->
+      case MapSet.size(set) do
+        1 ->
+          {:ok, MapSet.to_list(set) |> List.first()}
+
+        _ ->
+          IO.puts("Warning: multiple timestamps found in meter values")
+          {:error, nil}
+      end
+    end)
+  end
+
+  defp compare_datetimes(dt1, dt2) do
+    with {:ok, dt1, 0} <- DateTime.from_iso8601(dt1),
+         {:ok, dt2, 0} <- DateTime.from_iso8601(dt2) do
+      {:ok, DateTime.diff(dt1, dt2)}
+    else
+      _ -> {:error, nil}
+    end
+  end
+
+  def parse_data(rows) do
+    Enum.reduce(rows, [], fn row, acc ->
+      with {:ok, log_timestamp} <- get_value(row, "timestamp"),
+           {:ok, data} <- decode_json(row["data"]),
+           {:ok, message} <- decode_json(data["message"]),
+           {:ok, transaction_id, event_type, payload} <- parse_message(message),
+           {:ok, meter_values} <- get_value(payload, "meterValue"),
+           {:ok, event_timestamp} <- parse_meter_values(meter_values, "timestamp"),
+           {:ok, difference_in_seconds} <- compare_datetimes(log_timestamp, event_timestamp) do
+        [
+          %{
+            transaction_id: transaction_id,
+            log_timestamp: log_timestamp,
+            event_type: event_type,
+            event_timestamp: event_timestamp,
+            difference_in_seconds: difference_in_seconds
+          }
+          | acc
+        ]
+      else
+        _ -> acc
+      end
+    end)
+  end
+
+  defp seconds_to_largest_unit(seconds) do
+    minutes = 60
+    hours = 60 * minutes
+    days = 24 * hours
+    weeks = 7 * days
+    months = 4 * weeks
+    years = 12 * months
+
+    case seconds do
+      seconds when seconds > years -> "#{(seconds / years) |> Float.round(2)} years"
+      seconds when seconds > months -> "#{(seconds / months) |> Float.round(2)} months"
+      seconds when seconds > weeks -> "#{(seconds / weeks) |> Float.round(2)} weeks"
+      seconds when seconds > days -> "#{(seconds / days) |> Float.round(2)} days"
+      seconds when seconds > hours -> "#{(seconds / hours) |> Float.round(2)} hours"
+      seconds when seconds > minutes -> "#{(seconds / minutes) |> Float.round(2)} minutes"
+      seconds -> "#{seconds} seconds"
+    end
+  end
+
+  def filter_values_with_different_timestamps(rows) do
+    Enum.filter(rows, fn row ->
+      row[:difference_in_seconds] > 1
+    end)
+    |> Enum.map(fn row ->
+      Map.put(row, :difference, seconds_to_largest_unit(row[:difference_in_seconds]))
+      |> Map.delete(:difference_in_seconds)
+    end)
+  end
+
+  def chunk_and_print_by_field(rows, key) do
+    rows
+    |> Enum.chunk_by(fn row -> row[key] end)
+    |> Enum.map(fn chunk ->
+      first = chunk |> List.first() |> Map.get(key)
+      IO.puts("\t#{Enum.count(chunk)} for #{key}: #{first}")
+    end)
+  end
+end
+
+dir = "/Users/noah/Misc/cassandra-query"
+
+# Uncomment if you use this in the command line via:
+# `elixir query.exs ./feb-raw-events.json ./mar-raw-events.json`
+# json = System.argv()
+json =
+  [
+    "#{dir}/feb-raw-events.json",
+    "#{dir}/mar-raw-events.json"
+  ]
+  |> JsonQuery.read_json_files()
+  |> tap(fn rows ->
+    IO.puts("Found #{Enum.count(rows)} raw events")
+    JsonQuery.chunk_and_print_by_field(rows, "timestamp_month")
+  end)
+  |> JsonQuery.parse_data()
+  |> tap(fn rows ->
+    IO.puts("Found #{Enum.count(rows)} meter value events")
+    JsonQuery.chunk_and_print_by_field(rows, :timestamp_month)
+  end)
+  |> JsonQuery.filter_values_with_different_timestamps()
+  |> tap(fn rows ->
+    IO.puts("Found #{Enum.count(rows)} meter value events with different timestamps")
+    JsonQuery.chunk_and_print_by_field(rows, :timestamp_month)
+  end)
+  |> Jason.encode!()
+
+File.write!("./result.json", json)
+```
+
+## CSV Encode
+
+```elixir
+defmodule StreamTest do
+  require Logger
+
+  def build(rows) do
+    encoded_rows =
+      try do
+        rows
+        |> CSV.encode()
+      rescue
+        e ->
+          Logger.error("Error while encoding rows: #{inspect(e)}")
+          []
+      end
+
+    {:ok, encoded_rows}
+  end
+end
+
+{:ok, encoded_rows} = StreamTest.build([["asdf"], [",,,,,"], ["{:id, 1}"], ["opqr"], ["stuv"]])
+encoded_rows |> IO.inspect(label: "Before to_list")
+encoded_rows |> Enum.to_list() |> IO.inspect(label: "After to_list")
+```
+
+## Quick Return Check
+
+```elixir
+defmodule Testy do
+  def return_ok() do
+    :ok
+  end
+
+  def return_value() do
+    :ok = return_ok()
+  end
+end
+
+Testy.return_value() |> IO.inspect(label: "return")
+```
+
+## Naive DateTime
+
+```elixir
+%{
+  no_tz_info: ~N[2015-01-13 12:00:00.000],
+  capital_z_utc: ~N[2015-01-13 12:00:00.0Z],
+  offset_utc_minus_8: ~N[2015-01-13T12:00:00-08:00]
+}
+```
+
+```elixir
+obj = nil
+
+obj && obj.thing
 ```
